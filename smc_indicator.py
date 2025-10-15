@@ -1,50 +1,66 @@
-# ---- BASE SMC/ICT/Structure Logic ----
-def get_smc_signal(data):
-    # data: [{'close':..., 'low':..., 'high':..., ...}]
-    closes = [row["close"] for row in data if "close" in row]
-    highs = [row["high"] for row in data if "high" in row]
-    lows = [row["low"] for row in data if "low" in row]
-    latest = data[-1] if data else {}
-    # TODO: True ICT/SMC structure logic (BOS/CHoCH/FVG etc)
-    return {
-        "smc_side": "buy",  # placeholder (replace with BOS/CHoCH calc)
-        "smc_high": max(highs) if highs else None,
-        "smc_low": min(lows) if lows else None,
-        "entry": latest.get("close", 0)
-    }
-
-# ---- Breakout/Volume/Custom Logic plugins (from PineScripts) ----
-def get_breakout_signal(data):
-    # Example: basic breakout (replace logic with true breakout rules from pine)
+def get_smc_structure(data):
     closes = [row["close"] for row in data]
-    return {"breakout": closes[-1] > max(closes[-10:-1]) if len(closes) > 11 else False}
-
-def get_money_flow_signal(data):
-    # Example: placeholder logic (replace with custom oscillator/MFI etc)
-    volumes = [row.get("volume", 0) for row in data]
-    avg_vol = sum(volumes[-10:]) / 10 if len(volumes) >= 10 else 0
-    return {"money_flow": volumes[-1] > avg_vol if volumes else False}
-
-def get_volume_signal(data):
-    # Example: placeholder logic (replace with VOLUME.txt based logic)
-    volumes = [row.get("volume", 0) for row in data]
-    return {"volume_spike": volumes[-1] > (sum(volumes[-10:]) / 10) if len(volumes) >= 10 else False}
-
-# ---- Main Signal Fusion ----
-def get_trade_signal(data):
-    smc = get_smc_signal(data)
-    breakout = get_breakout_signal(data)
-    money_flow = get_money_flow_signal(data)
-    volume = get_volume_signal(data)
-
-    # Master-trade-signal: combines all (customize as per fusion model/risk rules)
-    final_signal = {
-        "side": "buy" if smc["smc_side"] == "buy" and breakout["breakout"] and money_flow["money_flow"] else "sell",
-        "product_id": 101,  # TODO: Make dynamic, use mapping/config
-        "size": 1,          # TODO: Make dynamic
-        "entry": smc["entry"],
-        "stop": smc["smc_low"] if smc["smc_side"] == "buy" else smc["smc_high"],
-        "target": smc["smc_high"] if smc["smc_side"] == "buy" else smc["smc_low"],
-        "details": {"smc": smc, "breakout": breakout, "money_flow": money_flow, "volume": volume}
+    highs = [row["high"] for row in data]
+    lows = [row["low"] for row in data]
+    bos_up = closes[-2] < closes[-3] and closes[-1] > closes[-2] if len(closes)>=3 else False
+    bos_down = closes[-2] > closes[-3] and closes[-1] < closes[-2] if len(closes)>=3 else False
+    fvg_up = (lows[-1] > highs[-3]) if len(highs)>=3 else False
+    fvg_down = (highs[-1] < lows[-3]) if len(lows)>=3 else False
+    side = "buy" if bos_up or fvg_up else ("sell" if bos_down or fvg_down else "hold")
+    return {
+        "side": side,
+        "bos_up": bos_up,
+        "bos_down": bos_down,
+        "fvg_up": fvg_up,
+        "fvg_down": fvg_down,
+        "entry": closes[-1] if closes else 0,
+        "stop": min(lows) if lows else 0,
+        "target": max(highs) if highs else 0
     }
-    return final_signal
+
+def get_rahulyadav_ai(data, config):
+    closes = [row["close"] for row in data]
+    highs = [row["high"] for row in data]
+    lows = [row["low"] for row in data]
+    volumes = [row.get("volume", 0) for row in data]
+    # AI adaptive SuperTrend
+    length = config.get("ailength", 10)
+    multiplier = config.get("aimultiplier", 3.0)
+    atr = max([highs[i]-lows[i] for i in range(-length, 0)]) if len(highs) >= length else 0
+    hl2 = (highs[-1]+lows[-1])/2 if highs and lows else 0
+    upper = hl2 + multiplier*atr
+    lower = hl2 - multiplier*atr
+    supertrend = -1 if closes[-1] < lower else (1 if closes[-1] > upper else 0)
+    # Session filter (active, prime hours)
+    is_prime = config.get('session_active', True)
+    # Volume Profile approx (big move if volume surge vs avg)
+    avg_vol = sum(volumes[-20:-1])/19 if len(volumes)>=21 else 0
+    vp_signal = volumes[-1] > 1.5*avg_vol if avg_vol else False
+    # FVG confirmation merged
+    ai_signal = (supertrend==1 and vp_signal and is_prime)
+    return {
+        "aitrend": supertrend,
+        "vp_signal": vp_signal,
+        "ai_signal": ai_signal,
+        "entry": closes[-1] if closes else 0,
+        "stop": lower if supertrend==1 else upper,
+        "target": highs[-1] if supertrend==1 and highs else lows[-1] if supertrend==-1 and lows else closes[-1]
+    }
+
+# ----- FINAL FUSION CALL -----
+def get_zero_to_millionaire_signal(data, config):
+    smc_struct = get_smc_structure(data)
+    ry_ai = get_rahulyadav_ai(data, config)
+    if smc_struct["side"]=="buy" and ry_ai["ai_signal"]:
+        final = "buy"
+    elif smc_struct["side"]=="sell" and ry_ai["ai_signal"]:
+        final = "sell"
+    else:
+        final = "hold"
+    return {
+        "side": final,
+        "entry": ry_ai["entry"],
+        "stop": ry_ai["stop"],
+        "target": ry_ai["target"],
+        "details": {"smc": smc_struct, "ry_ai": ry_ai}
+    }

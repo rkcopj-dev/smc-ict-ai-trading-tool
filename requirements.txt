@@ -3,3 +3,4 @@ uvicorn
 python-dotenv
 delta-rest-client
 requests
+python-multipart

@@ -64,7 +64,6 @@ def get_trade_signal(data, config):
     ry_ai = get_rahul_yadav_ai(data, config)
     breakout = get_breakout_signal(data)
     mfi = get_money_flow_signal(data)
-    # ALL CONDS True: buy, sell; else 'hold'
     if smc["side"]=="buy" and ry_ai["ai_signal"] and breakout and mfi:
         final="buy"
     elif smc["side"]=="sell" and ry_ai["ai_signal"] and breakout and mfi:

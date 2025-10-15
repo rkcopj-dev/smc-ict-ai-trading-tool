@@ -1,14 +1,5 @@
-import os
 import requests
 
-def send_telegram_alert(message):
-    token = os.getenv('TELEGRAM_BOT_TOKEN')
-    chat_id = os.getenv('TELEGRAM_CHAT_ID')
+def send_telegram_alert(token, chat_id, msg):
     url = f"https://api.telegram.org/bot{token}/sendMessage"
-    data = {"chat_id": chat_id, "text": message, "parse_mode": "HTML"}
-    try:
-        response = requests.post(url, json=data)
-        return response.json()
-    except Exception as e:
-        print("Telegram error:", e)
-        return None
+    requests.post(url, json={"chat_id": chat_id, "text": msg})

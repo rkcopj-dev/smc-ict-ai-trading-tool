@@ -1,6 +1,5 @@
 fastapi
 uvicorn
-streamlit
 python-dotenv
 delta-rest-client
 requests

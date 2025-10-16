@@ -1,4 +1,5 @@
 """ ICT + SMC + CLAUDE AI FUTURES TRADING SYSTEM - Railway Ready + Web Dashboard """
+
 import os
 import json
 import asyncio
@@ -27,9 +28,8 @@ class TradeType(str, Enum):
 
 class SessionType(str, Enum):
     TOKYO = "TOKYO"
-    LONDON = "LONDON"
     NEW_YORK = "NEW_YORK"
-    ASIAN_NIGHT = "ASIAN_NIGHT"
+    CRYPTO_PRIME = "CRYPTO_PRIME"
 
 class MarketBias(str, Enum):
     BULLISH = "BULLISH"
@@ -90,7 +90,7 @@ class ClaudeAIBrain:
             self.consecutive_losses = 0
         else:
             self.consecutive_losses += 1
-        self.success_rate = (self.profitable_trades / self.total_trades) * 100 if self.total_trades > 0 else 50.0
+        self.success_rate = (self.profitable_trades / self.total_trades) * 100
         self._adjust_parameters()
 
     def _adjust_parameters(self):
@@ -149,12 +149,11 @@ class ICTDetector:
 # DELTA CLIENT
 class DeltaClient:
     BASE_URL = "https://api.delta.exchange"
-
     def __init__(self, api_key: str, api_secret: str):
         self.api_key = api_key
         self.api_secret = api_secret
 
-    def get_candles(self, symbol: str, resolution: str = "1h", limit: int = 100) -> List[Dict]:
+    def get_candles(self, symbol: str, resolution: str = "60", limit: int = 100) -> List[Dict]:
         endpoint = f"/v2/history/candles"
         params = {"symbol": symbol, "resolution": resolution, "limit": limit}
         try:
@@ -185,12 +184,14 @@ class TelegramNotifier:
     def send_signal(self, signal: FuturesSignal):
         message = f"""
 🚀 FUTURES SIGNAL 🚀
+
 Symbol: {signal.symbol}
 Type: {signal.trade_type.value}
 Entry: ${signal.entry_price:.2f}
 Stop: ${signal.stop_loss:.2f}
 Target: ${signal.target_price:.2f}
 Leverage: {signal.leverage}x
+
 Confidence: {signal.confidence*100:.1f}%
 
 Reasons:
@@ -209,30 +210,6 @@ Reasons:
         except:
             pass
 
-# SESSION HELPER (24/7 CRYPTO)
-def get_current_session() -> Tuple[str, str]:
-    """Returns (emoji_label, session_name) based on IST time for 24/7 crypto markets"""
-    now = datetime.now()
-    hour = now.hour
-    minute = now.minute
-    time_minutes = hour * 60 + minute
-    
-    # Tokyo: 05:30 AM - 01:30 PM
-    if (5 * 60 + 30) <= time_minutes < (13 * 60 + 30):
-        return "🌅 टोक्यो", SessionType.TOKYO
-    
-    # London: 01:00 PM - 09:00 PM
-    elif (13 * 60) <= time_minutes < (21 * 60):
-        return "🏦 लंदन", SessionType.LONDON
-    
-    # New York: 06:00 PM - 02:30 AM (next day)
-    elif time_minutes >= (18 * 60) or time_minutes < (2 * 60 + 30):
-        return "🗽 न्यूयॉर्क", SessionType.NEW_YORK
-    
-    # Asian Night: 02:30 AM - 05:30 AM
-    else:
-        return "🌙 एशियन रात", SessionType.ASIAN_NIGHT
-
 # TRADING ENGINE
 class TradingEngine:
     def __init__(self):
@@ -247,56 +224,59 @@ class TradingEngine:
         if not can_trade:
             logger.warning(f"Trading paused: {msg}")
             return None
-
+        if not self._is_valid_session():
+            return None
         candles = self.delta_client.get_candles(symbol)
         if not candles:
             return None
-
         ticker = self.delta_client.get_ticker(symbol)
         if not ticker:
             return None
-
         current_price = float(ticker.get("close", 0))
         order_block = self.ict_detector.detect_order_block(candles)
         fvg = self.ict_detector.detect_fvg(candles)
-
         return self._generate_signal(symbol, current_price, order_block, fvg)
 
+    def _is_valid_session(self) -> bool:
+        now = datetime.now()
+        hour = now.hour
+        # Tokyo: 5:30-13:30, NY: 19:00-01:00, Crypto Prime: 15:30-18:30
+        if (5 <= hour < 13) or (15 <= hour < 18) or (hour >= 19) or (hour <= 1):
+            return True
+        return False
+
     def _generate_signal(
-        self, symbol: str, price: float, ob: Optional[OrderBlock], fvg: Optional[FairValueGap]
+        self,
+        symbol: str,
+        price: float,
+        ob: Optional[OrderBlock],
+        fvg: Optional[FairValueGap]
     ) -> Optional[FuturesSignal]:
         reasons = []
         confidence = 0.5
-
         if ob and ob.bias == MarketBias.BULLISH:
             if ob.price_low <= price <= ob.price_high:
                 reasons.append("📦 Bullish Order Block")
                 confidence += 0.25
-
-        if fvg and fvg.bias == MarketBias.BULLISH and fvg.bottom > price:
-            reasons.append("⬆️ FVG Target Above")
-            confidence += 0.25
-            target = fvg.bottom
-        else:
-            if ob:
-                risk = price - ob.price_low
-                target = price + (risk * Config.MIN_RISK_REWARD)
-            else:
-                return None
-
-        if confidence > 0.65 and ob:
-            _, session = get_current_session()
-            return FuturesSignal(
-                symbol=symbol,
-                trade_type=TradeType.FUTURES_LONG,
-                entry_price=price,
-                stop_loss=ob.price_low * 0.998,
-                target_price=target,
-                confidence=confidence,
-                leverage=Config.FUTURES_LEVERAGE,
-                session=session,
-                reasons=reasons
-            )
+                if fvg and fvg.bias == MarketBias.BULLISH and fvg.bottom > price:
+                    reasons.append("⬆️ FVG Target Above")
+                    confidence += 0.25
+                    target = fvg.bottom
+                else:
+                    risk = price - ob.price_low
+                    target = price + (risk * Config.MIN_RISK_REWARD)
+                if confidence > 0.65:
+                    return FuturesSignal(
+                        symbol=symbol,
+                        trade_type=TradeType.FUTURES_LONG,
+                        entry_price=price,
+                        stop_loss=ob.price_low * 0.998,
+                        target_price=target,
+                        confidence=confidence,
+                        leverage=Config.FUTURES_LEVERAGE,
+                        session=SessionType.CRYPTO_PRIME,
+                        reasons=reasons
+                    )
         return None
 
 # FASTAPI APP
@@ -311,165 +291,188 @@ app.add_middleware(
 trading_engine = TradingEngine()
 active_trades = {}
 
-# WEB DASHBOARD (MAIN PAGE) - Hindi + Real-Time Session
+# -------------------
+#   WEB DASHBOARD (MAIN PAGE) - Hindi + English
+# -------------------
 @app.get("/", response_class=HTMLResponse)
 def dashboard():
-    session_label, _ = get_current_session()
-    current_time = datetime.now().strftime("%I:%M %p IST, %d %b %Y")
-    
-    success_rate = trading_engine.ai_brain.success_rate
-    total_trades = trading_engine.ai_brain.total_trades
-    ai_confidence = 100.0
-    
-    return f"""
-<!DOCTYPE html>
+    current_hour = datetime.now().hour
+    session_label = (
+        '🌅 टोक्यो' if 5 <= current_hour < 13
+        else '🏮 क्रिप्टो प्राइम' if 15 <= current_hour < 18
+        else '🌃 न्यूयॉर्क' if current_hour >= 19 or current_hour <= 1
+        else '😴 बंद'
+    )
+    return f"""<!DOCTYPE html>
 <html lang="hi">
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <meta http-equiv="refresh" content="60">
-    <title>🚀 ICT + SMC + Claude AI</title>
+    <title>ICT + SMC + Claude AI Futures Trading Dashboard</title>
     <style>
-        * {{ margin: 0; padding: 0; box-sizing: border-box; }}
-        body {{
-            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
-            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
-            color: white;
-            min-height: 100vh;
-            padding: 20px;
-        }}
-        .container {{ max-width: 1200px; margin: 0 auto; }}
-        h1 {{ text-align: center; font-size: 2.5rem; margin-bottom: 10px; }}
-        .subtitle {{ text-align: center; opacity: 0.9; margin-bottom: 30px; font-size: 1.1rem; }}
-        .grid {{ display: grid; grid-template-columns: repeat(auto-fit, minmax(250px, 1fr)); gap: 20px; margin-bottom: 30px; }}
-        .card {{
-            background: rgba(255, 255, 255, 0.15);
-            backdrop-filter: blur(10px);
-            border-radius: 15px;
-            padding: 25px;
-            box-shadow: 0 8px 32px rgba(0, 0, 0, 0.1);
-            border: 1px solid rgba(255, 255, 255, 0.2);
-        }}
-        .card h3 {{ font-size: 0.9rem; opacity: 0.8; margin-bottom: 10px; text-transform: uppercase; }}
-        .card .value {{ font-size: 2rem; font-weight: bold; }}
-        .status-active {{ color: #4ade80; }}
-        .buttons {{ display: flex; gap: 15px; justify-content: center; flex-wrap: wrap; margin: 30px 0; }}
-        .btn {{
-            padding: 12px 30px;
-            border: none;
-            border-radius: 8px;
-            font-size: 1rem;
-            cursor: pointer;
-            transition: all 0.3s;
-            text-decoration: none;
-            display: inline-block;
-        }}
-        .btn-primary {{ background: #3b82f6; color: white; }}
-        .btn-success {{ background: #10b981; color: white; }}
-        .btn-danger {{ background: #ef4444; color: white; }}
-        .btn:hover {{ transform: translateY(-2px); box-shadow: 0 10px 20px rgba(0,0,0,0.2); }}
-        .live-results {{
-            background: rgba(255, 255, 255, 0.1);
-            border-radius: 15px;
-            padding: 25px;
-            margin-top: 20px;
-        }}
-        .live-results h2 {{ margin-bottom: 15px; display: flex; align-items: center; gap: 10px; }}
-        .result-item {{
-            background: rgba(0, 0, 0, 0.2);
-            padding: 15px;
-            border-radius: 8px;
-            margin-bottom: 10px;
-        }}
-        .footer {{ text-align: center; margin-top: 40px; opacity: 0.8; font-size: 0.9rem; }}
+        body {{ font-family:'Arial',sans-serif;background:linear-gradient(135deg,#667eea 0%,#764ba2 100%);min-height:100vh;color:white;margin:0 }}
+        .container{{ max-width:1200px;margin:0 auto;padding:20px; }}
+        .header{{ text-align:center;margin-bottom:30px; }}
+        .header h1{{ font-size:2.5em;margin-bottom:10px;text-shadow:2px 2px 4px rgba(0,0,0,0.3); }}
+        .header p{{ font-size:1.2em;opacity:0.9; }}
+        .stats-grid{{display:grid;grid-template-columns:repeat(auto-fit,minmax(250px,1fr));gap:20px;margin-bottom:30px;}}
+        .stat-card{{background:rgba(255,255,255,0.1);backdrop-filter:blur(10px);border-radius:15px;padding:20px;text-align:center; border:1px solid rgba(255,255,255,0.2);}}
+        .stat-card h3{{font-size:1.1em;margin-bottom:10px;opacity:0.8;}}
+        .stat-card .value{{font-size:2em;font-weight:bold;}}
+        .status-running{{color:#4CAF50}}
+        .action-buttons{{display:flex;gap:15px;justify-content:center;margin:30px 0;}}
+        .btn{{padding:12px 30px;background:rgba(255,255,255,0.2);border:none;border-radius:25px;color:white;cursor:pointer;transition:all 0.3s;}}
+        .btn:hover{{background:rgba(255,255,255,0.3);transform:translateY(-2px);}}
+        .trade-log{{background:rgba(0,0,0,0.2);border-radius:15px;padding:20px;margin-top:30px}}
+        .trade-log h3{{margin-bottom:15px}}
+        .log-entry{{background:rgba(255,255,255,0.1);padding:10px;margin:10px 0;border-radius:8px;}}
+        .refresh{{animation:spin 1s linear infinite;}}
+        @keyframes spin{{from{{transform:rotate(0deg);}}to{{transform:rotate(360deg);}}}}
     </style>
 </head>
 <body>
     <div class="container">
-        <h1>🚀 ICT + SMC + Claude AI</h1>
-        <p class="subtitle">Futures Trading Dashboard | राहुल यादव Strategy</p>
-        
-        <div class="grid">
-            <div class="card">
+        <div class="header">
+            <h1>🚀 ICT + SMC + Claude AI</h1>
+            <p>Futures Trading Dashboard | राहुल यादव Strategy</p>
+        </div>
+
+        <div class="stats-grid">
+            <div class="stat-card">
                 <h3>सिस्टम स्थिति</h3>
-                <div class="value status-active">✅ चालू रहा है</div>
+                <div class="value status-running" id="system-status">●️ चल रहा है</div>
             </div>
-            <div class="card">
+            <div class="stat-card">
                 <h3>सफलता दर</h3>
-                <div class="value">{success_rate:.1f}%</div>
+                <div class="value" id="success-rate">{trading_engine.ai_brain.success_rate:.1f}%</div>
             </div>
-            <div class="card">
+            <div class="stat-card">
                 <h3>कुल ट्रेड्स</h3>
-                <div class="value">{total_trades}</div>
+                <div class="value" id="total-trades">{trading_engine.ai_brain.total_trades}</div>
             </div>
-            <div class="card">
+            <div class="stat-card">
                 <h3>सक्रिय ट्रेड्स</h3>
-                <div class="value">{len(active_trades)}</div>
+                <div class="value" id="active-trades">{len(active_trades)}</div>
             </div>
-        </div>
-
-        <div class="grid">
-            <div class="card">
+            <div class="stat-card">
                 <h3>AI कॉन्फिडेंस</h3>
-                <div class="value">{ai_confidence:.0f}%</div>
+                <div class="value" id="ai-confidence">{trading_engine.ai_brain.dynamic_multiplier*100:.0f}%</div>
             </div>
-            <div class="card">
+            <div class="stat-card">
                 <h3>वर्तमान सत्र</h3>
-                <div class="value">{session_label}</div>
+                <div class="value" id="current-session">{session_label}</div>
             </div>
         </div>
-
-        <div class="buttons">
-            <a href="/analyze/BTCUSD" class="btn btn-primary">📊 मार्केट का विश्लेषण करें</a>
-            <a href="/dashboard" class="btn btn-success">📈 डेल रिफ्रेश करें</a>
-            <a href="/trends" class="btn btn-danger">📉 ट्रेंड देखें</a>
+        <div class="action-buttons">
+            <button class="btn" onclick="analyzeMarket()">📊 मार्केट का विश्लेषण करें</button>
+            <button class="btn" onclick="refreshStats()">🔄 डेटा रिफ्रेश करें</button>
+            <button class="btn" onclick="viewTrades()">📋 ट्रेड्स देखें</button>
         </div>
-
-        <div class="live-results">
-            <h2>🎯 लाइव रिज़ल्ट्स</h2>
-            <div class="result-item">
-                <strong>❌ कोई सिग्नल नहीं</strong><br>
-                Current conditions don't meet ICT criteria<br>
-                🕐 Checked: {current_time}
-            </div>
-        </div>
-
-        <div class="footer">
-            <p>Powered by ICT + SMC + Claude AI | Last Updated: {current_time}</p>
-            <p>⚡ Auto-refresh हर 60 seconds | 24/7 Crypto Market</p>
+        <div class="trade-log">
+            <h3>🎯 लाइव सिग्नल्स</h3>
+            <div id="signal-log"><div class="log-entry">💡 सिस्टम तैयार है - BTC/USDT का विश्लेषण करने के लिए ऊपर का बटन दबाएं</div></div>
         </div>
     </div>
+    <script>
+        async function analyzeMarket() {{
+            const btn = event.target;
+            btn.innerHTML = '🔄 विश्लेषण कर रहे हैं...';
+            btn.classList.add('refresh');
+            try {{
+                const response = await fetch('/analyze/BTCUSD');
+                const data = await response.json();
+                const logDiv = document.getElementById('signal-log');
+                const now = new Date().toLocaleString('hi-IN');
+                if (data.status === 'signal') {{
+                    logDiv.innerHTML = `
+                        <div class="log-entry" style="border-left: 4px solid #4CAF50;">
+                            <strong>🎯 NEW SIGNAL - ${{data.data.symbol}}</strong><br>
+                            📈 Type: ${{data.data.trade_type}}<br>
+                            💰 Entry: $${{data.data.entry_price}}<br>
+                            🛑 Stop: $${{data.data.stop_loss}}<br>
+                            🎯 Target: $${{data.data.target_price}}<br>
+                            🔥 Confidence: ${{(data.data.confidence*100).toFixed(1)}}%<br>
+                            ⏰ Time: ${{now}}
+                        </div>
+                    `;
+                }} else {{
+                    logDiv.innerHTML = `
+                        <div class="log-entry" style="border-left: 4px solid #FF9800;">
+                            <strong>⏳ कोई सिग्नल नहीं</strong><br>
+                            Current conditions don't meet ICT criteria<br>
+                            ⏰ Checked: ${{now}}
+                        </div>
+                    `;
+                }}
+            }} catch (error) {{
+                document.getElementById('signal-log').innerHTML = `
+                    <div class="log-entry" style="border-left: 4px solid #F44336;">
+                        <strong>❌ Error</strong><br>
+                        ${{error.message}}<br>
+                        Check API connection
+                    </div>
+                `;
+            }}
+            btn.innerHTML = '📊 मार्केट का विश्लेषण करें';
+            btn.classList.remove('refresh');
+        }}
+        async function refreshStats() {{
+            try {{
+                const response = await fetch('/stats');
+                const stats = await response.json();
+                document.getElementById('total-trades').textContent = stats.total_trades;
+                document.getElementById('success-rate').textContent = stats.success_rate.toFixed(1) + '%';
+                document.getElementById('active-trades').textContent = stats.active_trades;
+            }} catch (error) {{
+                console.error('Failed to refresh stats:', error);
+            }}
+        }}
+        function viewTrades() {{
+            window.open('/stats', '_blank');
+        }}
+        setInterval(refreshStats, 30000);
+    </script>
 </body>
 </html>
     """
 
-# API ENDPOINTS
+@app.get("/api/status")
+def api_status():
+    return {
+        "status": "running",
+        "system": "ICT+SMC+Claude Futures AI",
+        "success_rate": f"{trading_engine.ai_brain.success_rate:.1f}%",
+        "trades": trading_engine.ai_brain.total_trades
+    }
+
 @app.get("/analyze/{symbol}")
-def analyze_symbol(symbol: str):
-    signal = trading_engine.analyze(symbol)
-    if signal:
-        trading_engine.telegram.send_signal(signal)
-        return {"status": "success", "signal": signal.dict()}
-    return {"status": "no_signal", "message": "No ICT criteria met"}
+def analyze(symbol: str):
+    try:
+        signal = trading_engine.analyze(symbol)
+        if signal:
+            trading_engine.telegram.send_signal(signal)
+            active_trades[symbol] = signal.dict()
+            return {"status": "signal", "data": signal.dict()}
+        return {"status": "no_signal", "message": "No setup found"}
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+@app.post("/close/{symbol}")
+def close_trade(symbol: str, exit_price: float, profitable: bool):
+    if symbol in active_trades:
+        trading_engine.ai_brain.record_trade(profitable, "CRYPTO_PRIME")
+        del active_trades[symbol]
+        return {"status": "closed", "success_rate": trading_engine.ai_brain.success_rate}
+    raise HTTPException(404, "Trade not found")
 
 @app.get("/stats")
-def get_stats():
+def stats():
     return {
         "total_trades": trading_engine.ai_brain.total_trades,
         "success_rate": trading_engine.ai_brain.success_rate,
         "active_trades": len(active_trades)
     }
 
-@app.get("/health")
-def health_check():
-    session_label, _ = get_current_session()
-    return {
-        "status": "healthy",
-        "session": session_label,
-        "timestamp": datetime.now().isoformat()
-    }
-
-# RUN SERVER
 if __name__ == "__main__":
     port = int(os.getenv("PORT", 8000))
     uvicorn.run(app, host="0.0.0.0", port=port)

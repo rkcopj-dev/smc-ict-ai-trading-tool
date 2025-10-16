@@ -1,5 +1,19 @@
-# Railway-Ready SMC/ICT AI Trading Tool
+# ICT + SMC + Claude AI Futures Trading System
 
-- AI/Manual fusion: SMC BOS/CHOCH, FVG + RahulYadav AI trend, breakout, volume, money flow.
-- Pure Python, Railway deploy, full auto Delta API support.
-- Modular plugin structure—future ready, easy debugging, instant expansion.
+🚀 Production-Ready Crypto Futures Trading Bot
+
+## Features
+- ICT Smart Money Concepts (Order Blocks, FVG)
+- राहुल यादव Session-Based Strategy
+- Claude AI Adaptive Learning
+- Delta Exchange API Integration
+- Railway Deployment Optimized
+
+## Quick Start
+1. Clone repo & add environment variables
+2. Deploy to Railway
+3. Test endpoints: /analyze/BTCUSD, /stats, /
+4. Paper trade 24h
+5. Go live!
+
+See DEPLOYMENT_GUIDE.md for full details.

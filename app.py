@@ -1,4 +1,4 @@
-""" ICT + SMC + CLAUDE AI FUTURES TRADING SYSTEM - Railway Ready """
+""" ICT + SMC + CLAUDE AI FUTURES TRADING SYSTEM - Railway Ready + Web Dashboard """
 
 import os
 import json
@@ -13,6 +13,7 @@ from collections import deque
 from enum import Enum
 from fastapi import FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import HTMLResponse
 from pydantic import BaseModel, Field
 import uvicorn
 import logging
@@ -290,8 +291,153 @@ app.add_middleware(
 trading_engine = TradingEngine()
 active_trades = {}
 
-@app.get("/")
-def root():
+# -------------------
+#   WEB DASHBOARD (MAIN PAGE) - Hindi + English
+# -------------------
+@app.get("/", response_class=HTMLResponse)
+def dashboard():
+    current_hour = datetime.now().hour
+    session_label = (
+        '🌅 टोक्यो' if 5 <= current_hour < 13
+        else '🏮 क्रिप्टो प्राइम' if 15 <= current_hour < 18
+        else '🌃 न्यूयॉर्क' if current_hour >= 19 or current_hour <= 1
+        else '😴 बंद'
+    )
+    return f"""<!DOCTYPE html>
+<html lang="hi">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>ICT + SMC + Claude AI Futures Trading Dashboard</title>
+    <style>
+        body {{ font-family:'Arial',sans-serif;background:linear-gradient(135deg,#667eea 0%,#764ba2 100%);min-height:100vh;color:white;margin:0 }}
+        .container{{ max-width:1200px;margin:0 auto;padding:20px; }}
+        .header{{ text-align:center;margin-bottom:30px; }}
+        .header h1{{ font-size:2.5em;margin-bottom:10px;text-shadow:2px 2px 4px rgba(0,0,0,0.3); }}
+        .header p{{ font-size:1.2em;opacity:0.9; }}
+        .stats-grid{{display:grid;grid-template-columns:repeat(auto-fit,minmax(250px,1fr));gap:20px;margin-bottom:30px;}}
+        .stat-card{{background:rgba(255,255,255,0.1);backdrop-filter:blur(10px);border-radius:15px;padding:20px;text-align:center; border:1px solid rgba(255,255,255,0.2);}}
+        .stat-card h3{{font-size:1.1em;margin-bottom:10px;opacity:0.8;}}
+        .stat-card .value{{font-size:2em;font-weight:bold;}}
+        .status-running{{color:#4CAF50}}
+        .action-buttons{{display:flex;gap:15px;justify-content:center;margin:30px 0;}}
+        .btn{{padding:12px 30px;background:rgba(255,255,255,0.2);border:none;border-radius:25px;color:white;cursor:pointer;transition:all 0.3s;}}
+        .btn:hover{{background:rgba(255,255,255,0.3);transform:translateY(-2px);}}
+        .trade-log{{background:rgba(0,0,0,0.2);border-radius:15px;padding:20px;margin-top:30px}}
+        .trade-log h3{{margin-bottom:15px}}
+        .log-entry{{background:rgba(255,255,255,0.1);padding:10px;margin:10px 0;border-radius:8px;}}
+        .refresh{{animation:spin 1s linear infinite;}}
+        @keyframes spin{{from{{transform:rotate(0deg);}}to{{transform:rotate(360deg);}}}}
+    </style>
+</head>
+<body>
+    <div class="container">
+        <div class="header">
+            <h1>🚀 ICT + SMC + Claude AI</h1>
+            <p>Futures Trading Dashboard | राहुल यादव Strategy</p>
+        </div>
+
+        <div class="stats-grid">
+            <div class="stat-card">
+                <h3>सिस्टम स्थिति</h3>
+                <div class="value status-running" id="system-status">●️ चल रहा है</div>
+            </div>
+            <div class="stat-card">
+                <h3>सफलता दर</h3>
+                <div class="value" id="success-rate">{trading_engine.ai_brain.success_rate:.1f}%</div>
+            </div>
+            <div class="stat-card">
+                <h3>कुल ट्रेड्स</h3>
+                <div class="value" id="total-trades">{trading_engine.ai_brain.total_trades}</div>
+            </div>
+            <div class="stat-card">
+                <h3>सक्रिय ट्रेड्स</h3>
+                <div class="value" id="active-trades">{len(active_trades)}</div>
+            </div>
+            <div class="stat-card">
+                <h3>AI कॉन्फिडेंस</h3>
+                <div class="value" id="ai-confidence">{trading_engine.ai_brain.dynamic_multiplier*100:.0f}%</div>
+            </div>
+            <div class="stat-card">
+                <h3>वर्तमान सत्र</h3>
+                <div class="value" id="current-session">{session_label}</div>
+            </div>
+        </div>
+        <div class="action-buttons">
+            <button class="btn" onclick="analyzeMarket()">📊 मार्केट का विश्लेषण करें</button>
+            <button class="btn" onclick="refreshStats()">🔄 डेटा रिफ्रेश करें</button>
+            <button class="btn" onclick="viewTrades()">📋 ट्रेड्स देखें</button>
+        </div>
+        <div class="trade-log">
+            <h3>🎯 लाइव सिग्नल्स</h3>
+            <div id="signal-log"><div class="log-entry">💡 सिस्टम तैयार है - BTC/USDT का विश्लेषण करने के लिए ऊपर का बटन दबाएं</div></div>
+        </div>
+    </div>
+    <script>
+        async function analyzeMarket() {{
+            const btn = event.target;
+            btn.innerHTML = '🔄 विश्लेषण कर रहे हैं...';
+            btn.classList.add('refresh');
+            try {{
+                const response = await fetch('/analyze/BTCUSD');
+                const data = await response.json();
+                const logDiv = document.getElementById('signal-log');
+                const now = new Date().toLocaleString('hi-IN');
+                if (data.status === 'signal') {{
+                    logDiv.innerHTML = `
+                        <div class="log-entry" style="border-left: 4px solid #4CAF50;">
+                            <strong>🎯 NEW SIGNAL - ${{data.data.symbol}}</strong><br>
+                            📈 Type: ${{data.data.trade_type}}<br>
+                            💰 Entry: $${{data.data.entry_price}}<br>
+                            🛑 Stop: $${{data.data.stop_loss}}<br>
+                            🎯 Target: $${{data.data.target_price}}<br>
+                            🔥 Confidence: ${{(data.data.confidence*100).toFixed(1)}}%<br>
+                            ⏰ Time: ${{now}}
+                        </div>
+                    `;
+                }} else {{
+                    logDiv.innerHTML = `
+                        <div class="log-entry" style="border-left: 4px solid #FF9800;">
+                            <strong>⏳ कोई सिग्नल नहीं</strong><br>
+                            Current conditions don't meet ICT criteria<br>
+                            ⏰ Checked: ${{now}}
+                        </div>
+                    `;
+                }}
+            }} catch (error) {{
+                document.getElementById('signal-log').innerHTML = `
+                    <div class="log-entry" style="border-left: 4px solid #F44336;">
+                        <strong>❌ Error</strong><br>
+                        ${{error.message}}<br>
+                        Check API connection
+                    </div>
+                `;
+            }}
+            btn.innerHTML = '📊 मार्केट का विश्लेषण करें';
+            btn.classList.remove('refresh');
+        }}
+        async function refreshStats() {{
+            try {{
+                const response = await fetch('/stats');
+                const stats = await response.json();
+                document.getElementById('total-trades').textContent = stats.total_trades;
+                document.getElementById('success-rate').textContent = stats.success_rate.toFixed(1) + '%';
+                document.getElementById('active-trades').textContent = stats.active_trades;
+            }} catch (error) {{
+                console.error('Failed to refresh stats:', error);
+            }}
+        }}
+        function viewTrades() {{
+            window.open('/stats', '_blank');
+        }}
+        setInterval(refreshStats, 30000);
+    </script>
+</body>
+</html>
+    """
+
+@app.get("/api/status")
+def api_status():
     return {
         "status": "running",
         "system": "ICT+SMC+Claude Futures AI",
